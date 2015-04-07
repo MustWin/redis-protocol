@@ -22,4 +22,17 @@
       <version>0.7</version>
     </dependency>
   </dependencies>
+    <build>
+        <plugins>
+
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+
+                <configuration>
+                    <mainClass>redis.server.netty.Main</mainClass>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>
