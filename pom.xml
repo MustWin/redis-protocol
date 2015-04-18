@@ -24,6 +24,7 @@
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <kryo.version>3.0.1</kryo.version>
   </properties>
 
   <developers>
@@ -68,11 +69,6 @@
   </distributionManagement>
 
   <dependencies>
-      <dependency>
-          <groupId>com.esotericsoftware</groupId>
-          <artifactId>kryo-shaded</artifactId>
-          <version>3.0.1</version>
-      </dependency>
     <!-- Guava -->
     <dependency>
       <groupId>com.google.guava</groupId>
