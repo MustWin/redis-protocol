@@ -1,5 +1,7 @@
 package redis.util;
 
+import java.io.Serializable;
+
 /**
  * Doesn't precalculate the hashCode since it is a value and not a key.
  * <p/>
@@ -7,9 +9,10 @@ package redis.util;
  * Date: 10/20/12
  * Time: 5:08 PM
  */
-public class BytesValue {
-  protected final byte[] bytes;
+public class BytesValue implements Serializable {
+  protected byte[] bytes;
 
+    public BytesValue() {};
   public BytesValue(byte[] bytes) {
     this.bytes = bytes;
   }

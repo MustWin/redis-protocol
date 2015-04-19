@@ -1,12 +1,13 @@
 package redis.util;
 
+import java.io.Serializable;
 import java.util.HashSet;
 
 /**
  * Map that uses byte[]s for keys. Wraps them for you. Passing a non-byte[] or
  * non-BytesKey will result in a CCE.
 */
-public class BytesKeySet extends HashSet<BytesKey> {
+public class BytesKeySet extends HashSet<BytesKey> implements Serializable {
 
   public boolean add(byte[] member) {
     return super.add(new BytesKey(member));

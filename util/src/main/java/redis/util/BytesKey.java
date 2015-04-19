@@ -2,6 +2,7 @@ package redis.util;
 
 import com.google.common.primitives.SignedBytes;
 
+import java.io.Serializable;
 import java.util.Comparator;
 
 /**
@@ -14,7 +15,7 @@ import java.util.Comparator;
 public class BytesKey extends BytesValue implements Comparable<BytesKey> {
   private static final Comparator<byte[]> COMPARATOR = SignedBytes.lexicographicalComparator();
 
-  private final int hashCode;
+  private int hashCode;
 
   @Override
   public boolean equals(Object o) {
@@ -24,7 +25,6 @@ public class BytesKey extends BytesValue implements Comparable<BytesKey> {
     }
     return false;
   }
-
   public BytesKey(byte[] bytes) {
     super(bytes);
     int hashCode = 0;
