@@ -1,6 +1,7 @@
 package redis.server.netty;
 
 import com.google.common.base.Charsets;
+import edu.stanford.ramcloud.RAMCloud;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
@@ -13,8 +14,11 @@ import redis.util.BytesKey;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Properties;
 
 import static redis.netty4.ErrorReply.NYI_REPLY;
 import static redis.netty4.StatusReply.QUIT;
@@ -32,6 +36,7 @@ public class RedisCommandHandler extends ChannelInboundMessageHandlerAdapter<Com
   }
 
   public RedisCommandHandler(final RedisServer rs) {
+
     Class<? extends RedisServer> aClass = rs.getClass();
     for (final Method method : aClass.getMethods()) {
       final Class<?>[] types = method.getParameterTypes();

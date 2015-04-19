@@ -1,15 +1,26 @@
 package redis.server.netty;
 
+import com.esotericsoftware.kryo.Kryo;
+import com.esotericsoftware.kryo.io.Input;
+import com.esotericsoftware.kryo.io.Output;
+import edu.stanford.ramcloud.RAMCloud;
+import edu.stanford.ramcloud.RAMCloudObject;
+import static edu.stanford.ramcloud.ClientException.*;
+
+import edu.stanford.ramcloud.RejectRules;
+import edu.stanford.ramcloud.TableIterator;
 import io.netty.buffer.ByteBuf;
 import redis.netty4.*;
 import redis.util.*;
 
+import java.io.*;
 import java.lang.reflect.Field;
 import java.security.SecureRandom;
 import java.util.*;
 
 import static java.lang.Double.parseDouble;
 import static java.lang.Integer.MAX_VALUE;
+import static java.lang.Integer.remainderUnsigned;
 import static redis.netty4.BulkReply.NIL_REPLY;
 import static redis.netty4.IntegerReply.integer;
 import static redis.netty4.StatusReply.OK;
@@ -18,7 +29,21 @@ import static redis.util.Encoding.bytesToNum;
 import static redis.util.Encoding.numToBytes;
 
 public class SimpleRedisServer implements RedisServer {
+    private Kryo kryo = new Kryo();
 
+    private final RAMCloud ramCloud;
+    private final long hashTableId, keyTableID, setTableID;
+
+    public SimpleRedisServer(RAMCloud ramCloud)
+    {
+      this.ramCloud = ramCloud;
+      //Technically, this should only require one table, because
+      //Redis shares a global keyspace, but that could get very hairy
+      hashTableId = ramCloud.createTable("REDIS_RAMCLOUD_HASH");
+      keyTableID = ramCloud.createTable("REDIS_RAMCLOUD_KEY");
+      setTableID = ramCloud.createTable("REDIS_RAMCLOUD_SET");
+      kryo.register(BytesKey.class, new BytesKeySerializer());
+    }
   private static final StatusReply PONG = new StatusReply("PONG");
   private long started = now();
 
@@ -38,6 +63,9 @@ public class SimpleRedisServer implements RedisServer {
     return new RedisException("value is not a float or out of range");
   }
 
+  private static RedisException notImplemented() {
+        return new RedisException("method is not implemented in RamCLOUD Redis Proxy");
+    }
   @SuppressWarnings("unchecked")
   private BytesKeyObjectMap<byte[]> _gethash(byte[] key0, boolean create) throws RedisException {
     Object o = _get(key0);
@@ -258,6 +286,7 @@ public class SimpleRedisServer implements RedisServer {
     return (int) offset;
   }
 
+    /*
   private static Random r = new SecureRandom();
   private static Field tableField;
   private static Field nextField;
@@ -277,6 +306,7 @@ public class SimpleRedisServer implements RedisServer {
       nextField = null;
     }
   }
+  */
 
   private static RedisException noSuchKey() {
     return new RedisException("no such key");
@@ -296,22 +326,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply append(byte[] key0, byte[] value1) throws RedisException {
-    Object o = _get(key0);
-    int length1 = value1.length;
-    if (o instanceof byte[]) {
-      byte[] src = (byte[]) o;
-      int length0 = src.length;
-      byte[] bytes = new byte[length0 + length1];
-      System.arraycopy(src, 0, bytes, 0, length0);
-      System.arraycopy(value1, 0, bytes, length0, length1);
-      _put(key0, bytes);
-      return integer(bytes.length);
-    } else if (o == null) {
-      _put(key0, value1);
-      return integer(length1);
-    } else {
-      throw invalidValue();
-    }
+    throw notImplemented();
   }
 
   /**
@@ -325,28 +340,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply bitcount(byte[] key0, byte[] start1, byte[] end2) throws RedisException {
-    Object o = _get(key0);
-    if (o instanceof byte[]) {
-      byte[] bytes = (byte[]) o;
-      int size = bytes.length;
-      int s = _torange(start1, size);
-      int e = _torange(end2, size);
-      if (e < s) e = s;
-      int total = 0;
-      for (int i = s; i <= e; i++) {
-        int b = bytes[i] & 0xFF;
-        for (int j = 0; j < 8; j++) {
-          if ((b & mask[j]) != 0) {
-            total++;
-          }
-        }
-      }
-      return integer(total);
-    } else if (o == null) {
-      return integer(0);
-    } else {
-      throw invalidValue();
-    }
+    throw notImplemented();
   }
 
   /**
@@ -360,50 +354,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply bitop(byte[] operation0, byte[] destkey1, byte[][] key2) throws RedisException {
-    BitOp bitOp = BitOp.valueOf(new String(operation0).toUpperCase());
-    int size = 0;
-    for (byte[] aKey2 : key2) {
-      int length = aKey2.length;
-      if (length > size) {
-        size = length;
-      }
-    }
-    byte[] bytes = null;
-    for (byte[] aKey2 : key2) {
-      byte[] src;
-      src = _getbytes(aKey2);
-      if (bytes == null) {
-        bytes = new byte[size];
-        if (bitOp == BitOp.NOT) {
-          if (key2.length > 1) {
-            throw new RedisException("invalid number of arguments for 'bitop' NOT operation");
-          }
-          for (int i = 0; i < src.length; i++) {
-            bytes[i] = (byte) ~(src[i] & 0xFF);
-          }
-        } else {
-          System.arraycopy(src, 0, bytes, 0, src.length);
-        }
-      } else {
-        for (int i = 0; i < src.length; i++) {
-          int d = bytes[i] & 0xFF;
-          int s = src[i] & 0xFF;
-          switch (bitOp) {
-            case AND:
-              bytes[i] = (byte) (d & s);
-              break;
-            case OR:
-              bytes[i] = (byte) (d | s);
-              break;
-            case XOR:
-              bytes[i] = (byte) (d ^ s);
-              break;
-          }
-        }
-      }
-    }
-    _put(destkey1, bytes);
-    return integer(bytes == null ? 0 : bytes.length);
+    throw notImplemented();
   }
 
   enum BitOp {AND, OR, XOR, NOT}
@@ -417,7 +368,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply decr(byte[] key0) throws RedisException {
-    return _change(key0, -1);
+    throw notImplemented();
   }
 
   /**
@@ -430,7 +381,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply decrby(byte[] key0, byte[] decrement1) throws RedisException {
-    return _change(key0, -bytesToNum(decrement1));
+    throw notImplemented();
   }
 
   /**
@@ -442,15 +393,13 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public BulkReply get(byte[] key0) throws RedisException {
-    Object o = _get(key0);
-    if (o instanceof byte[]) {
-      return new BulkReply((byte[]) o);
-    }
-    if (o == null) {
-      return NIL_REPLY;
-    } else {
-      throw invalidValue();
-    }
+      try {
+          final RAMCloudObject read = ramCloud.read(keyTableID, key0);
+          return new BulkReply(read.getValueBytes());
+
+      } catch (Exception ObjectNotFoundException) {
+          return NIL_REPLY;
+      }
   }
 
   /**
@@ -463,16 +412,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply getbit(byte[] key0, byte[] offset1) throws RedisException {
-    Object o = _get(key0);
-    if (o instanceof byte[]) {
-      long offset = bytesToNum(offset1);
-      byte[] bytes = (byte[]) o;
-      return _test(bytes, offset) == 1 ? integer(1) : integer(0);
-    } else if (o == null) {
-      return integer(0);
-    } else {
-      throw invalidValue();
-    }
+    throw notImplemented();
   }
 
   /**
@@ -486,15 +426,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public BulkReply getrange(byte[] key0, byte[] start1, byte[] end2) throws RedisException {
-    byte[] bytes = _getbytes(key0);
-    int size = bytes.length;
-    int s = _torange(start1, size);
-    int e = _torange(end2, size);
-    if (e < s) e = s;
-    int length = e - s + 1;
-    byte[] out = new byte[length];
-    System.arraycopy(bytes, s, out, 0, length);
-    return new BulkReply(out);
+    throw notImplemented();
   }
 
   /**
@@ -507,14 +439,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public BulkReply getset(byte[] key0, byte[] value1) throws RedisException {
-    Object put = _put(key0, value1);
-    if (put == null || put instanceof byte[]) {
-      return put == null ? NIL_REPLY : new BulkReply((byte[]) put);
-    } else {
-      // Put it back
-      data.put(key0, put);
-      throw invalidValue();
-    }
+    throw notImplemented();
   }
 
   /**
@@ -526,7 +451,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply incr(byte[] key0) throws RedisException {
-    return _change(key0, 1);
+    throw notImplemented();
   }
 
   /**
@@ -539,7 +464,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply incrby(byte[] key0, byte[] increment1) throws RedisException {
-    return _change(key0, bytesToNum(increment1));
+    throw notImplemented();
   }
 
   /**
@@ -552,7 +477,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public BulkReply incrbyfloat(byte[] key0, byte[] increment1) throws RedisException {
-    return _change(key0, _todouble(increment1));
+    throw notImplemented();
   }
 
   /**
@@ -564,17 +489,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public MultiBulkReply mget(byte[][] key0) throws RedisException {
-    int length = key0.length;
-    Reply[] replies = new Reply[length];
-    for (int i = 0; i < length; i++) {
-      Object o = _get(key0[i]);
-      if (o instanceof byte[]) {
-        replies[i] = new BulkReply((byte[]) o);
-      } else {
-        replies[i] = NIL_REPLY;
-      }
-    }
-    return new MultiBulkReply(replies);
+    throw notImplemented();
   }
 
   /**
@@ -586,14 +501,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public StatusReply mset(byte[][] key_or_value0) throws RedisException {
-    int length = key_or_value0.length;
-    if (length % 2 != 0) {
-      throw new RedisException("wrong number of arguments for MSET");
-    }
-    for (int i = 0; i < length; i += 2) {
-      _put(key_or_value0[i], key_or_value0[i + 1]);
-    }
-    return OK;
+    throw notImplemented();
   }
 
   /**
@@ -605,19 +513,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply msetnx(byte[][] key_or_value0) throws RedisException {
-    int length = key_or_value0.length;
-    if (length % 2 != 0) {
-      throw new RedisException("wrong number of arguments for MSETNX");
-    }
-    for (int i = 0; i < length; i += 2) {
-      if (_get(key_or_value0[i]) != null) {
-        return integer(0);
-      }
-    }
-    for (int i = 0; i < length; i += 2) {
-      _put(key_or_value0[i], key_or_value0[i + 1]);
-    }
-    return integer(1);
+    throw notImplemented();
   }
 
   /**
@@ -631,8 +527,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public Reply psetex(byte[] key0, byte[] milliseconds1, byte[] value2) throws RedisException {
-    _put(key0, value2, bytesToNum(milliseconds1) + now());
-    return OK;
+    throw notImplemented();
   }
 
   /**
@@ -645,8 +540,8 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public StatusReply set(byte[] key0, byte[] value1) throws RedisException {
-    _put(key0, value1);
-    return OK;
+      ramCloud.write(keyTableID, key0, value1, null);
+      return OK;
   }
 
   /**
@@ -660,38 +555,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply setbit(byte[] key0, byte[] offset1, byte[] value2) throws RedisException {
-    int bit = (int) bytesToNum(value2);
-    if (bit != 0 && bit != 1) throw notInteger();
-    Object o = _get(key0);
-    if (o instanceof byte[] || o == null) {
-      long offset = bytesToNum(offset1);
-      long div = offset / 8;
-      if (div + 1 > MAX_VALUE) throw notInteger();
-
-      byte[] bytes = (byte[]) o;
-      if (bytes == null || bytes.length < div + 1) {
-        byte[] tmp = bytes;
-        bytes = new byte[(int) div + 1];
-        if (tmp != null) System.arraycopy(tmp, 0, bytes, 0, tmp.length);
-        _put(key0, bytes);
-      }
-      int mod = (int) (offset % 8);
-      int value = bytes[((int) div)] & 0xFF;
-      int i = value & mask[mod];
-      if (i == 0) {
-        if (bit != 0) {
-          bytes[((int) div)] += mask[mod];
-        }
-        return integer(0);
-      } else {
-        if (bit == 0) {
-          bytes[((int) div)] -= mask[mod];
-        }
-        return integer(1);
-      }
-    } else {
-      throw invalidValue();
-    }
+    throw notImplemented();
   }
 
   /**
@@ -705,8 +569,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public StatusReply setex(byte[] key0, byte[] seconds1, byte[] value2) throws RedisException {
-    _put(key0, value2, bytesToNum(seconds1) * 1000 + now());
-    return OK;
+    throw notImplemented();
   }
 
   /**
@@ -719,11 +582,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply setnx(byte[] key0, byte[] value1) throws RedisException {
-    if (_get(key0) == null) {
-      _put(key0, value1);
-      return integer(1);
-    }
-    return integer(0);
+    throw notImplemented();
   }
 
   /**
@@ -737,17 +596,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply setrange(byte[] key0, byte[] offset1, byte[] value2) throws RedisException {
-    byte[] bytes = _getbytes(key0);
-    int offset = _toposint(offset1);
-    int length = value2.length + offset;
-    if (bytes.length < length) {
-      byte[] tmp = bytes;
-      bytes = new byte[length];
-      System.arraycopy(tmp, 0, bytes, 0, offset);
-      _put(key0, bytes);
-    }
-    System.arraycopy(value2, 0, bytes, offset, value2.length);
-    return integer(bytes.length);
+    throw notImplemented();
   }
 
   /**
@@ -759,7 +608,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply strlen(byte[] key0) throws RedisException {
-    return integer(_getbytes(key0).length);
+    throw notImplemented();
   }
 
   /**
@@ -965,7 +814,14 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public StatusReply flushall() throws RedisException {
-    data.clear();
+    long[] tables = {hashTableId, keyTableID, setTableID};
+    for (int i = 0; i < tables.length; i++) {
+      final TableIterator tableIterator = ramCloud.getTableIterator(tables[i]);
+      while (tableIterator.hasNext())
+      {
+        ramCloud.remove(tables[i], tableIterator.next().getKeyBytes());
+      }
+    }
     return OK;
   }
 
@@ -977,7 +833,14 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public StatusReply flushdb() throws RedisException {
-    data.clear();
+    long[] tables = {hashTableId, keyTableID, setTableID};
+    for (int i = 0; i < tables.length; i++) {
+      final TableIterator tableIterator = ramCloud.getTableIterator(tables[i]);
+      while (tableIterator.hasNext())
+      {
+        ramCloud.remove(tables[i], tableIterator.next().getKeyBytes());
+      }
+    }
     return OK;
   }
 
@@ -991,7 +854,6 @@ public class SimpleRedisServer implements RedisServer {
   public BulkReply info(byte[] section) throws RedisException {
     StringBuilder sb = new StringBuilder();
     sb.append("redis_version:2.6.0\n");
-    sb.append("keys:").append(data.size()).append("\n");
     sb.append("uptime:").append(now() - started).append("\n");
     return new BulkReply(sb.toString().getBytes());
   }
@@ -1151,13 +1013,7 @@ public class SimpleRedisServer implements RedisServer {
   @SuppressWarnings("unchecked")
   @Override
   public BulkReply lindex(byte[] key0, byte[] index1) throws RedisException {
-    int index = _toposint(index1);
-    List<BytesValue> list = _getlist(key0, true);
-    if (list == null || list.size() <= index) {
-      return NIL_REPLY;
-    } else {
-      return new BulkReply(list.get(index).getBytes());
-    }
+    throw notImplemented();
   }
 
   /**
@@ -1172,15 +1028,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply linsert(byte[] key0, byte[] where1, byte[] pivot2, byte[] value3) throws RedisException {
-    Where where = Where.valueOf(new String(where1).toUpperCase());
-    List<BytesValue> list = _getlist(key0, true);
-    BytesKey pivot = new BytesKey(pivot2);
-    int i = list.indexOf(pivot);
-    if (i == -1) {
-      return integer(-1);
-    }
-    list.add(i + (where == Where.BEFORE ? 0 : 1), new BytesKey(value3));
-    return integer(list.size());
+    throw notImplemented();
   }
 
   enum Where {BEFORE, AFTER}
@@ -1194,8 +1042,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply llen(byte[] key0) throws RedisException {
-    List<BytesValue> list = _getlist(key0, false);
-    return list == null ? integer(0) : integer(list.size());
+    throw notImplemented();
   }
 
   /**
@@ -1207,12 +1054,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public BulkReply lpop(byte[] key0) throws RedisException {
-    List<BytesValue> list = _getlist(key0, false);
-    if (list == null || list.size() == 0) {
-      return NIL_REPLY;
-    } else {
-      return new BulkReply(list.remove(0).getBytes());
-    }
+    throw notImplemented();
   }
 
   /**
@@ -1225,11 +1067,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply lpush(byte[] key0, byte[][] value1) throws RedisException {
-    List<BytesValue> list = _getlist(key0, true);
-    for (byte[] value : value1) {
-      list.add(0, new BytesKey(value));
-    }
-    return integer(list.size());
+    throw notImplemented();
   }
 
   /**
@@ -1242,13 +1080,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply lpushx(byte[] key0, byte[] value1) throws RedisException {
-    List<BytesValue> list = _getlist(key0, false);
-    if (list == null) {
-      return integer(0);
-    } else {
-      list.add(0, new BytesKey(value1));
-    }
-    return integer(list.size());
+    throw notImplemented();
   }
 
   /**
@@ -1262,21 +1094,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public MultiBulkReply lrange(byte[] key0, byte[] start1, byte[] stop2) throws RedisException {
-    List<BytesValue> list = _getlist(key0, false);
-    if (list == null) {
-      return MultiBulkReply.EMPTY;
-    } else {
-      int size = list.size();
-      int s = _torange(start1, size);
-      int e = _torange(stop2, size);
-      if (e < s) e = s;
-      int length = e - s + 1;
-      Reply[] replies = new Reply[length];
-      for (int i = s; i <= e; i++) {
-        replies[i - s] = new BulkReply(list.get(i).getBytes());
-      }
-      return new MultiBulkReply(replies);
-    }
+    throw notImplemented();
   }
 
   /**
@@ -1290,35 +1108,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply lrem(byte[] key0, byte[] count1, byte[] value2) throws RedisException {
-    List<BytesValue> list = _getlist(key0, false);
-    if (list == null) {
-      return integer(0);
-    } else {
-      int count = _toint(count1);
-      BytesKey value = new BytesKey(value2);
-      int size = list.size();
-      int dir = 1;
-      int s = 0;
-      int e = size;
-      int rem = 0;
-      boolean all = count == 0;
-      if (count < 0) {
-        count = -count;
-        dir = -1;
-        s = e;
-        e = -1;
-      }
-      for (int i = s; (all || count != 0) && i != e; i += dir) {
-        if (list.get(i).equals(value)) {
-          list.remove(i);
-          e -= dir;
-          i -= dir;
-          rem++;
-          count--;
-        }
-      }
-      return integer(rem);
-    }
+    throw notImplemented();
   }
 
   /**
@@ -1332,18 +1122,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public StatusReply lset(byte[] key0, byte[] index1, byte[] value2) throws RedisException {
-    List<BytesValue> list = _getlist(key0, false);
-    if (list == null) {
-      throw noSuchKey();
-    }
-    int size = list.size();
-    int index = _toposint(index1);
-    if (index < size) {
-      list.set(index, new BytesKey(value2));
-      return OK;
-    } else {
-      throw invalidValue();
-    }
+    throw notImplemented();
   }
 
   /**
@@ -1357,17 +1136,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public StatusReply ltrim(byte[] key0, byte[] start1, byte[] stop2) throws RedisException {
-    List<BytesValue> list = _getlist(key0, false);
-    if (list == null) {
-      return OK;
-    } else {
-      int l = list.size();
-      int s = _torange(start1, l);
-      int e = _torange(stop2, l);
-      // Doesn't change expiration
-      data.put(key0, list.subList(s, e + 1));
-      return OK;
-    }
+    throw notImplemented();
   }
 
   /**
@@ -1379,15 +1148,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public BulkReply rpop(byte[] key0) throws RedisException {
-    List<BytesValue> list = _getlist(key0, false);
-    int l;
-    if (list == null || (l = list.size()) == 0) {
-      return NIL_REPLY;
-    } else {
-      byte[] bytes = list.get(l - 1).getBytes();
-      list.remove(l - 1);
-      return new BulkReply(bytes);
-    }
+    throw notImplemented();
   }
 
   /**
@@ -1400,17 +1161,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public BulkReply rpoplpush(byte[] source0, byte[] destination1) throws RedisException {
-    List<BytesValue> source = _getlist(source0, false);
-    int l;
-    if (source == null || (l = source.size()) == 0) {
-      return NIL_REPLY;
-    } else {
-      List<BytesValue> dest = _getlist(destination1, true);
-      BytesValue popped = source.get(l - 1);
-      source.remove(l - 1);
-      dest.add(0, popped);
-      return new BulkReply(popped.getBytes());
-    }
+    throw notImplemented();
   }
 
   /**
@@ -1423,11 +1174,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply rpush(byte[] key0, byte[][] value1) throws RedisException {
-    List<BytesValue> list = _getlist(key0, true);
-    for (byte[] bytes : value1) {
-      list.add(new BytesKey(bytes));
-    }
-    return integer(list.size());
+    throw notImplemented();
   }
 
   /**
@@ -1440,13 +1187,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply rpushx(byte[] key0, byte[] value1) throws RedisException {
-    List<BytesValue> list = _getlist(key0, false);
-    if (list == null) {
-      return integer(0);
-    } else {
-      list.add(new BytesKey(value1));
-      return integer(list.size());
-    }
+    throw notImplemented();
   }
 
   /**
@@ -1460,11 +1201,13 @@ public class SimpleRedisServer implements RedisServer {
   public IntegerReply del(byte[][] key0) throws RedisException {
     int total = 0;
     for (byte[] bytes : key0) {
-      Object remove = data.remove(bytes);
-      if (remove != null) {
+      try {
+        ramCloud.remove(keyTableID, bytes, null);
         total++;
       }
-      expires.remove(bytes);
+      catch (Exception ObjectNotFoundException) {
+
+      }
     }
     return integer(total);
   }
@@ -1490,8 +1233,13 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply exists(byte[] key0) throws RedisException {
-    Object o = _get(key0);
-    return o == null ? integer(0) : integer(1);
+    try {
+      ramCloud.read(keyTableID, key0, null);
+      return integer(1);
+    }
+    catch (Exception ObjectNotFoundException) {
+      return integer(0);
+    }
   }
 
   /**
@@ -1504,13 +1252,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply expire(byte[] key0, byte[] seconds1) throws RedisException {
-    Object o = _get(key0);
-    if (o == null) {
-      return integer(0);
-    } else {
-      expires.put(key0, bytesToNum(seconds1) * 1000 + now());
-      return integer(1);
-    }
+    throw notImplemented();
   }
 
   /**
@@ -1523,13 +1265,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply expireat(byte[] key0, byte[] timestamp1) throws RedisException {
-    Object o = _get(key0);
-    if (o == null) {
-      return integer(0);
-    } else {
-      expires.put(key0, bytesToNum(timestamp1) * 1000);
-      return integer(1);
-    }
+    throw notImplemented();
   }
 
   /**
@@ -1541,27 +1277,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public MultiBulkReply keys(byte[] pattern0) throws RedisException {
-    if (pattern0 == null) {
-      throw new RedisException("wrong number of arguments for KEYS");
-    }
-    List<Reply<ByteBuf>> replies = new ArrayList<Reply<ByteBuf>>();
-    Iterator<Object> it = data.keySet().iterator();
-    while(it.hasNext()) {        
-      BytesKey key = (BytesKey) it.next();
-      byte[] bytes = key.getBytes();
-      boolean expired = false;
-      Long l = expires.get(key);
-      if (l != null) {
-        if (l < now()) {
-          expired = true;
-          it.remove();
-        }
-      }
-      if (matches(bytes, pattern0, 0, 0) && !expired) {
-        replies.add(new BulkReply(bytes));
-      }
-    }
-    return new MultiBulkReply(replies.toArray(new Reply[replies.size()]));
+    throw notImplemented();
   }
 
   /**
@@ -1616,13 +1332,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply persist(byte[] key0) throws RedisException {
-    Object o = _get(key0);
-    if (o == null) {
-      return integer(0);
-    } else {
-      Long remove = expires.remove(key0);
-      return remove == null ? integer(0) : integer(1);
-    }
+    throw notImplemented();
   }
 
   /**
@@ -1635,13 +1345,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply pexpire(byte[] key0, byte[] milliseconds1) throws RedisException {
-    Object o = _get(key0);
-    if (o == null) {
-      return integer(0);
-    } else {
-      expires.put(key0, bytesToNum(milliseconds1) + now());
-      return integer(1);
-    }
+    throw notImplemented();
   }
 
   /**
@@ -1654,13 +1358,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply pexpireat(byte[] key0, byte[] milliseconds_timestamp1) throws RedisException {
-    Object o = _get(key0);
-    if (o == null) {
-      return integer(0);
-    } else {
-      expires.put(key0, bytesToNum(milliseconds_timestamp1));
-      return integer(1);
-    }
+    throw notImplemented();
   }
 
   /**
@@ -1672,25 +1370,22 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply pttl(byte[] key0) throws RedisException {
-    Object o = _get(key0);
-    if (o == null) {
-      return integer(-1);
-    } else {
-      Long aLong = expires.get(key0);
-      if (aLong == null) {
-        return integer(-1);
-      } else {
-        return integer(aLong - now());
-      }
-    }
+    throw notImplemented();
   }
 
-  /**
+    @Override
+    public BulkReply randomkey() throws RedisException {
+        return null;
+    }
+
+
+    /**
    * Return a random key from the keyspace
    * Generic
    *
    * @return BulkReply
    */
+  /*
   @Override
   public BulkReply randomkey() throws RedisException {
     // This implementation mirrors that of Redis. I'm not
@@ -1710,7 +1405,9 @@ public class SimpleRedisServer implements RedisServer {
     }
     return null;
   }
+    */
 
+  /*
   private BytesKey getRandomKey(Map data1) throws IllegalAccessException {
     Map.Entry[] table = (Map.Entry[]) tableField.get(data1);
     int length = table.length;
@@ -1730,6 +1427,7 @@ public class SimpleRedisServer implements RedisServer {
     while (choose-- != 0) current = (Map.Entry) nextField.get(current);
     return (BytesKey) current.getKey();
   }
+  */
 
   /**
    * Rename a key
@@ -1741,14 +1439,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public StatusReply rename(byte[] key0, byte[] newkey1) throws RedisException {
-    Object o = _get(key0);
-    if (o == null) {
-      throw noSuchKey();
-    } else {
-      data.put(newkey1, data.remove(key0));
-      expires.put(newkey1, expires.remove(key0));
-      return OK;
-    }
+    throw notImplemented();
   }
 
   /**
@@ -1761,19 +1452,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply renamenx(byte[] key0, byte[] newkey1) throws RedisException {
-    Object o = _get(key0);
-    if (o == null) {
-      throw noSuchKey();
-    } else {
-      Object newo = _get(newkey1);
-      if (newo == null) {
-        data.put(newkey1, data.remove(key0));
-        expires.put(newkey1, expires.remove(key0));
-        return integer(1);
-      } else {
-        return integer(0);
-      }
-    }
+    throw notImplemented();
   }
 
   /**
@@ -1821,17 +1500,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply ttl(byte[] key0) throws RedisException {
-    Object o = _get(key0);
-    if (o == null) {
-      return integer(-1);
-    } else {
-      Long aLong = expires.get(key0);
-      if (aLong == null) {
-        return integer(-1);
-      } else {
-        return integer((aLong - now()) / 1000);
-      }
-    }
+    throw notImplemented();
   }
 
   /**
@@ -1843,21 +1512,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public StatusReply type(byte[] key0) throws RedisException {
-    Object o = _get(key0);
-    if (o == null) {
-      return new StatusReply("none");
-    } else if (o instanceof byte[]) {
-      return new StatusReply("string");
-    } else if (o instanceof Map) {
-      return new StatusReply("hash");
-    } else if (o instanceof List) {
-      return new StatusReply("list");
-    } else if (o instanceof SortedSet) {
-      return new StatusReply("zset");
-    } else if (o instanceof Set) {
-      return new StatusReply("set");
-    }
-    return null;
+    throw notImplemented();
   }
 
   /**
@@ -1969,12 +1624,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply hdel(byte[] key0, byte[][] field1) throws RedisException {
-    BytesKeyObjectMap<byte[]> hash = _gethash(key0, false);
-    int total = 0;
-    for (byte[] hkey : field1) {
-      total += hash.remove(hkey) == null ? 0 : 1;
-    }
-    return integer(total);
+    throw notImplemented();
   }
 
   /**
@@ -1987,7 +1637,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply hexists(byte[] key0, byte[] field1) throws RedisException {
-    return _gethash(key0, false).get(field1) == null ? integer(0) : integer(1);
+    throw notImplemented();
   }
 
   /**
@@ -2000,12 +1650,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public BulkReply hget(byte[] key0, byte[] field1) throws RedisException {
-    byte[] bytes = _gethash(key0, false).get(field1);
-    if (bytes == null) {
-      return NIL_REPLY;
-    } else {
-      return new BulkReply(bytes);
-    }
+    throw notImplemented();
   }
 
   /**
@@ -2017,15 +1662,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public MultiBulkReply hgetall(byte[] key0) throws RedisException {
-    BytesKeyObjectMap<byte[]> hash = _gethash(key0, false);
-    int size = hash.size();
-    Reply[] replies = new Reply[size * 2];
-    int i = 0;
-    for (Map.Entry<Object, byte[]> entry : hash.entrySet()) {
-      replies[i++] = new BulkReply(((BytesKey) entry.getKey()).getBytes());
-      replies[i++] = new BulkReply(entry.getValue());
-    }
-    return new MultiBulkReply(replies);
+    throw notImplemented();
   }
 
   /**
@@ -2039,18 +1676,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply hincrby(byte[] key0, byte[] field1, byte[] increment2) throws RedisException {
-    BytesKeyObjectMap<byte[]> hash = _gethash(key0, true);
-    byte[] field = hash.get(field1);
-    int increment = _toint(increment2);
-    if (field == null) {
-      hash.put(field1, increment2);
-      return new IntegerReply(increment);
-    } else {
-      int i = _toint(field);
-      int value = i + increment;
-      hash.put(field1, numToBytes(value, false));
-      return new IntegerReply(value);
-    }
+    throw notImplemented();
   }
 
   /**
@@ -2064,19 +1690,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public BulkReply hincrbyfloat(byte[] key0, byte[] field1, byte[] increment2) throws RedisException {
-    BytesKeyObjectMap<byte[]> hash = _gethash(key0, true);
-    byte[] field = hash.get(field1);
-    double increment = _todouble(increment2);
-    if (field == null) {
-      hash.put(field1, increment2);
-      return new BulkReply(increment2);
-    } else {
-      double d = _todouble(field);
-      double value = d + increment;
-      byte[] bytes = _tobytes(value);
-      hash.put(field1, bytes);
-      return new BulkReply(bytes);
-    }
+    throw notImplemented();
   }
 
   /**
@@ -2088,14 +1702,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public MultiBulkReply hkeys(byte[] key0) throws RedisException {
-    BytesKeyObjectMap<byte[]> hash = _gethash(key0, false);
-    int size = hash.size();
-    Reply[] replies = new Reply[size];
-    int i = 0;
-    for (Object hkey : hash.keySet()) {
-      replies[i++] = new BulkReply(((BytesKey) hkey).getBytes());
-    }
-    return new MultiBulkReply(replies);
+    throw notImplemented();
   }
 
   /**
@@ -2107,8 +1714,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply hlen(byte[] key0) throws RedisException {
-    BytesKeyObjectMap<byte[]> hash = _gethash(key0, false);
-    return integer(hash.size());
+    throw notImplemented();
   }
 
   /**
@@ -2121,18 +1727,28 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public MultiBulkReply hmget(byte[] key0, byte[][] field1) throws RedisException {
-    BytesKeyObjectMap<byte[]> hash = _gethash(key0, false);
-    int length = field1.length;
-    Reply[] replies = new Reply[length];
-    for (int i = 0; i < length; i++) {
-      byte[] bytes = hash.get(field1[i]);
-      if (bytes == null) {
-        replies[i] = NIL_REPLY;
-      } else {
-        replies[i] = new BulkReply(bytes);
+      BytesKeyObjectMap<byte[]> hash;
+      try {
+          final RAMCloudObject read = ramCloud.read(hashTableId, key0);
+          final ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(read.getValueBytes());
+          final Input input = new Input(byteArrayInputStream);
+          hash = kryo.readObject(input, BytesKeyObjectMap.class);
+
+
+      } catch (Exception ObjectNotFoundException) {
+          hash = new BytesKeyObjectMap();
       }
-    }
-    return new MultiBulkReply(replies);
+      int length = field1.length;
+      Reply[] replies = new Reply[length];
+      for (int i = 0; i < length; i++) {
+          byte[] bytes = hash.get(field1[i]);
+          if (bytes == null) {
+              replies[i] = NIL_REPLY;
+          } else {
+              replies[i] = new BulkReply(bytes);
+          }
+      }
+      return new MultiBulkReply(replies);
   }
 
   /**
@@ -2145,14 +1761,45 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public StatusReply hmset(byte[] key0, byte[][] field_or_value1) throws RedisException {
-    BytesKeyObjectMap<byte[]> hash = _gethash(key0, true);
-    if (field_or_value1.length % 2 != 0) {
-      throw new RedisException("wrong number of arguments for HMSET");
-    }
-    for (int i = 0; i < field_or_value1.length; i += 2) {
-      hash.put(field_or_value1[i], field_or_value1[i + 1]);
-    }
-    return OK;
+      BytesKeyObjectMap<byte[]> hash;
+
+
+      if (field_or_value1.length % 2 != 0) {
+          throw new RedisException("wrong number of arguments for HMSET");
+      }
+      for (int retries = 5; retries > 0; retries--) {
+          RejectRules rules = new RejectRules();
+          try {
+              final RAMCloudObject read = ramCloud.read(hashTableId, key0);
+              final ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(read.getValueBytes());
+              final Input input = new Input(byteArrayInputStream);
+              hash = kryo.readObject(input, BytesKeyObjectMap.class);
+              for (int i = 0; i < field_or_value1.length; i += 2) {
+                  hash.put(field_or_value1[i], field_or_value1[i + 1]);
+              }
+              rules.rejectIfVersionNeGiven(true);
+              rules.setGivenVersion(read.getVersion());
+
+          } catch (Exception ObjectNotFoundException) {
+              hash = new BytesKeyObjectMap();
+              for (int i = 0; i < field_or_value1.length; i += 2) {
+                  hash.put(field_or_value1[i], field_or_value1[i + 1]);
+              }
+          }
+          ByteArrayOutputStream outStream = new ByteArrayOutputStream();
+          Output output = new Output(outStream);
+          kryo.writeObject(output, hash);
+          output.flush();
+          try {
+              ramCloud.write(hashTableId, key0, outStream.toByteArray(), rules);
+          }
+          catch (WrongVersionException e)
+          {
+              continue;
+          }
+          return OK;
+      }
+      throw new RedisException("Reject Rules failed after retries");
   }
 
   /**
@@ -2166,9 +1813,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply hset(byte[] key0, byte[] field1, byte[] value2) throws RedisException {
-    BytesKeyObjectMap<byte[]> hash = _gethash(key0, true);
-    Object put = hash.put(field1, value2);
-    return put == null ? integer(1) : integer(0);
+    throw notImplemented();
   }
 
   /**
@@ -2182,14 +1827,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply hsetnx(byte[] key0, byte[] field1, byte[] value2) throws RedisException {
-    BytesKeyObjectMap<byte[]> hash = _gethash(key0, true);
-    byte[] bytes = hash.get(field1);
-    if (bytes == null) {
-      hash.put(field1, value2);
-      return integer(1);
-    } else {
-      return integer(0);
-    }
+    throw notImplemented();
   }
 
   /**
@@ -2201,14 +1839,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public MultiBulkReply hvals(byte[] key0) throws RedisException {
-    BytesKeyObjectMap<byte[]> hash = _gethash(key0, false);
-    int size = hash.size();
-    Reply[] replies = new Reply[size];
-    int i = 0;
-    for (byte[] hvalue : hash.values()) {
-      replies[i++] = new BulkReply(hvalue);
-    }
-    return new MultiBulkReply(replies);
+    throw notImplemented();
   }
 
   /**
@@ -2235,12 +1866,43 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply sadd(byte[] key0, byte[][] member1) throws RedisException {
-    BytesKeySet set = _getset(key0, true);
-    int total = 0;
-    for (byte[] bytes : member1) {
-      if (set.add(bytes)) total++;
-    }
-    return integer(total);
+
+      //BytesKeySet set = _getset(key0, true);
+      BytesKeySet set;
+      int total = 0;
+      for (int retries = 5; retries > 0; retries--) {
+          RejectRules rules = new RejectRules();
+          try {
+              final RAMCloudObject read = ramCloud.read(setTableID, key0);
+              final ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(read.getValueBytes());
+              final Input input = new Input(byteArrayInputStream);
+              set = kryo.readObject(input, BytesKeySet.class);
+              for (byte[] bytes : member1) {
+                  if (set.add(bytes)) total++;
+              }
+              rules.rejectIfVersionNeGiven(true);
+              rules.setGivenVersion(read.getVersion());
+
+          } catch (Exception ObjectNotFoundException) {
+              set = new BytesKeySet();
+              for (byte[] bytes : member1) {
+                  if (set.add(bytes)) total++;
+              }
+          }
+          ByteArrayOutputStream outStream = new ByteArrayOutputStream();
+          Output output = new Output(outStream);
+          kryo.writeObject(output, set);
+          output.flush();
+          try {
+              ramCloud.write(setTableID, key0, outStream.toByteArray(), rules);
+          }
+          catch (WrongVersionException e)
+          {
+              continue;
+          }
+          return integer(total);
+      }
+      throw new RedisException("Reject Rules failed after retries");
   }
 
   /**
@@ -2252,8 +1914,16 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply scard(byte[] key0) throws RedisException {
-    BytesKeySet bytesKeys = _getset(key0, false);
-    return integer(bytesKeys.size());
+    try {
+      final RAMCloudObject read = ramCloud.read(setTableID, key0);
+      final ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(read.getValueBytes());
+      final Input input = new Input(byteArrayInputStream);
+      BytesKeySet set = kryo.readObject(input, BytesKeySet.class);
+      return integer(set.size());
+
+    } catch (Exception ObjectNotFoundException) {
+      return integer(0);
+    }
   }
 
   /**
@@ -2265,25 +1935,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public MultiBulkReply sdiff(byte[][] key0) throws RedisException {
-    BytesKeySet set = _sdiff(key0);
-    return _setreply(set);
-  }
-
-  private BytesKeySet _sdiff(byte[][] key0) throws RedisException {
-    BytesKeySet set = null;
-    for (byte[] key : key0) {
-      if (set == null) {
-        set = new BytesKeySet();
-        set.addAll(_getset(key, false));
-      } else {
-        BytesKeySet c = _getset(key, false);
-        set.removeAll(c);
-      }
-    }
-    if (set == null) {
-      throw new RedisException("wrong number of arguments for 'sdiff' command");
-    }
-    return set;
+    throw notImplemented();
   }
 
   /**
@@ -2296,14 +1948,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply sdiffstore(byte[] destination0, byte[][] key1) throws RedisException {
-    Object o = _get(destination0);
-    if (o == null || o instanceof Set) {
-      BytesKeySet set = _sdiff(key1);
-      _put(destination0, set);
-      return integer(set.size());
-    } else {
-      throw invalidValue();
-    }
+    throw notImplemented();
   }
 
   /**
@@ -2315,30 +1960,11 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public MultiBulkReply sinter(byte[][] key0) throws RedisException {
-    BytesKeySet set = _sinter(key0);
-    return _setreply(set);
+    throw notImplemented();
   }
 
   private BytesKeySet _sinter(byte[][] key0) throws RedisException {
-    BytesKeySet set = null;
-    for (byte[] key : key0) {
-      if (set == null) {
-        set = _getset(key, false);
-      } else {
-        BytesKeySet inter = new BytesKeySet();
-        BytesKeySet newset = _getset(key, false);
-        for (BytesKey bytesKey : newset) {
-          if (set.contains(bytesKey)) {
-            inter.add(bytesKey);
-          }
-        }
-        set = inter;
-      }
-    }
-    if (set == null) {
-      throw new RedisException("wrong number of arguments for 'sinter' command");
-    }
-    return set;
+    throw notImplemented();
   }
 
   /**
@@ -2351,14 +1977,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply sinterstore(byte[] destination0, byte[][] key1) throws RedisException {
-    Object o = _get(destination0);
-    if (o == null || o instanceof Set) {
-      BytesKeySet set = _sinter(key1);
-      _put(destination0, set);
-      return integer(set.size());
-    } else {
-      throw invalidValue();
-    }
+    throw notImplemented();
   }
 
   /**
@@ -2371,8 +1990,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply sismember(byte[] key0, byte[] member1) throws RedisException {
-    BytesKeySet set = _getset(key0, false);
-    return set.contains(member1) ? integer(1) : integer(0);
+    throw notImplemented();
   }
 
   /**
@@ -2384,8 +2002,19 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public MultiBulkReply smembers(byte[] key0) throws RedisException {
-    BytesKeySet set = _getset(key0, false);
-    return _setreply(set);
+
+      try {
+          final RAMCloudObject read = ramCloud.read(setTableID, key0);
+          final ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(read.getValueBytes());
+          final Input input = new Input(byteArrayInputStream);
+          BytesKeySet set = kryo.readObject(input, BytesKeySet.class);
+          return _setreply(set);
+
+      }
+      catch (ObjectDoesntExistException e)
+      {
+        return _setreply(new BytesKeySet());
+      }
   }
 
   private MultiBulkReply _setreply(BytesKeySet set) {
@@ -2408,23 +2037,22 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply smove(byte[] source0, byte[] destination1, byte[] member2) throws RedisException {
-    BytesKeySet source = _getset(source0, false);
-    if (source.remove(member2)) {
-      BytesKeySet dest = _getset(destination1, true);
-      dest.add(member2);
-      return integer(1);
-    } else {
-      return integer(0);
-    }
+    throw notImplemented();
   }
 
-  /**
+    @Override
+    public BulkReply spop(byte[] key0) throws RedisException {
+        return null;
+    }
+
+    /**
    * Remove and return a random member from a set
    * Set
    *
    * @param key0
    * @return BulkReply
    */
+  /*
   @Override
   public BulkReply spop(byte[] key0) throws RedisException {
     if (mapField == null || tableField == null) {
@@ -2441,6 +2069,7 @@ public class SimpleRedisServer implements RedisServer {
     }
   }
 
+*/
   /**
    * Get a random member from a set
    * Set
@@ -2448,6 +2077,7 @@ public class SimpleRedisServer implements RedisServer {
    * @param key0
    * @return BulkReply
    */
+  /*
   @Override
   public Reply srandmember(byte[] key0, byte[] count1) throws RedisException {
     if (mapField == null || tableField == null) {
@@ -2486,6 +2116,7 @@ public class SimpleRedisServer implements RedisServer {
     }
   }
 
+*/
   /**
    * Remove one or more members from a set
    * Set
@@ -2515,24 +2146,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public MultiBulkReply sunion(byte[][] key0) throws RedisException {
-    BytesKeySet set = _sunion(key0);
-    return _setreply(set);
-  }
-
-  private BytesKeySet _sunion(byte[][] key0) throws RedisException {
-    BytesKeySet set = null;
-    for (byte[] key : key0) {
-      if (set == null) {
-        set = new BytesKeySet();
-        set.addAll(_getset(key, false));
-      } else {
-        set.addAll(_getset(key, false));
-      }
-    }
-    if (set == null) {
-      throw new RedisException("wrong number of arguments for 'sunion' command");
-    }
-    return set;
+    throw notImplemented();
   }
 
   /**
@@ -2545,14 +2159,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply sunionstore(byte[] destination0, byte[][] key1) throws RedisException {
-    Object o = _get(destination0);
-    if (o == null || o instanceof Set) {
-      BytesKeySet set = _sunion(key1);
-      _put(destination0, set);
-      return integer(set.size());
-    } else {
-      throw invalidValue();
-    }
+    throw notImplemented();
   }
 
   /**
@@ -2564,20 +2171,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply zadd(byte[][] args) throws RedisException {
-    if (args.length < 3 || (args.length - 1) % 2 == 1) {
-      throw new RedisException("wrong number of arguments for 'zadd' command");
-    }
-    byte[] key = args[0];
-    ZSet zset = _getzset(key, true);
-    int total = 0;
-    for (int i = 1; i < args.length; i += 2) {
-      byte[] value = args[i + 1];
-      byte[] score = args[i];
-      if (zset.add(new BytesKey(value), _todouble(score))) {
-        total++;
-      }
-    }
-    return integer(total);
+    throw notImplemented();
   }
 
   private double _todouble(byte[] score) {
@@ -2608,24 +2202,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply zcount(byte[] key0, byte[] min1, byte[] max2) throws RedisException {
-    if (key0 == null || min1 == null || max2 == null) {
-      throw new RedisException("wrong number of arguments for 'zcount' command");
-    }
-    ZSet zset = _getzset(key0, false);
-    Score min = _toscorerange(min1);
-    Score max = _toscorerange(max2);
-    Iterable<ZSetEntry> entries = zset.subSet(_todouble(min1), _todouble(max2));
-    int total = 0;
-    for (ZSetEntry entry : entries) {
-      if (entry.getScore() == min.value && !min.inclusive) {
-        continue;
-      }
-      if (entry.getScore() == max.value && !max.inclusive) {
-        continue;
-      }
-      total++;
-    }
-    return integer(total);
+    throw notImplemented();
   }
 
   /**
@@ -2639,17 +2216,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public BulkReply zincrby(byte[] key0, byte[] increment1, byte[] member2) throws RedisException {
-    ZSet zset = _getzset(key0, true);
-    ZSetEntry entry = zset.get(member2);
-    double increment = _todouble(increment1);
-    if (entry == null) {
-      zset.add(new BytesKey(member2), increment);
-      return new BulkReply(increment1);
-    } else {
-      zset.remove(member2);
-      zset.add(entry.getKey(), entry.getScore() + increment);
-      return new BulkReply(_tobytes(entry.getScore()));
-    }
+    throw notImplemented();
   }
 
   /**
@@ -2663,87 +2230,11 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply zinterstore(byte[] destination0, byte[] numkeys1, byte[][] key2) throws RedisException {
-    return _zstore(destination0, numkeys1, key2, "zinterstore", false);
+    throw notImplemented();
   }
 
   private IntegerReply _zstore(byte[] destination0, byte[] numkeys1, byte[][] key2, String name, boolean union) throws RedisException {
-    if (destination0 == null || numkeys1 == null) {
-      throw new RedisException("wrong number of arguments for '" + name + "' command");
-    }
-    int numkeys = _toint(numkeys1);
-    if (key2.length < numkeys) {
-      throw new RedisException("wrong number of arguments for '" + name + "' command");
-    }
-    int position = numkeys;
-    double[] weights = null;
-    Aggregate type = null;
-    if (key2.length > position) {
-      if ("weights".equals(new String(key2[position]).toLowerCase())) {
-        position++;
-        if (key2.length < position + numkeys) {
-          throw new RedisException("wrong number of arguments for '" + name + "' command");
-        }
-        weights = new double[numkeys];
-        for (int i = position; i < position + numkeys; i++) {
-          weights[i - position] = _todouble(key2[i]);
-        }
-        position += numkeys;
-      }
-      if (key2.length > position + 1) {
-        if ("aggregate".equals(new String(key2[position]).toLowerCase())) {
-          type = Aggregate.valueOf(new String(key2[position + 1]).toUpperCase());
-        }
-      } else if (key2.length != position) {
-        throw new RedisException("wrong number of arguments for '" + name + "' command");
-      }
-    }
-    del(new byte[][]{destination0});
-    ZSet destination = _getzset(destination0, true);
-    for (int i = 0; i < numkeys; i++) {
-      ZSet zset = _getzset(key2[i], false);
-      if (i == 0) {
-        if (weights == null) {
-          destination.addAll(zset);
-        } else {
-          double weight = weights[i];
-          for (ZSetEntry entry : zset) {
-            destination.add(entry.getKey(), entry.getScore() * weight);
-          }
-        }
-      } else {
-        for (ZSetEntry entry : zset) {
-          BytesKey key = entry.getKey();
-          ZSetEntry current = destination.get(key);
-          destination.remove(key);
-          if (union || current != null) {
-            double newscore = entry.getScore() * (weights == null ? 1 : weights[i]);
-            if (type == null || type == Aggregate.SUM) {
-              if (current != null) {
-                newscore += current.getScore();
-              }
-            } else if (type == Aggregate.MIN) {
-              if (current != null && newscore > current.getScore()) {
-                newscore = current.getScore();
-              }
-            } else if (type == Aggregate.MAX) {
-              if (current != null && newscore < current.getScore()) {
-                newscore = current.getScore();
-              }
-            }
-            destination.add(key, newscore);
-          }
-        }
-        if (!union) {
-          for (ZSetEntry entry : new ZSet(destination)) {
-            BytesKey key = entry.getKey();
-            if (zset.get(key) == null) {
-              destination.remove(key);
-            }
-          }
-        }
-      }
-    }
-    return integer(destination.size());
+    throw notImplemented();
   }
 
   enum Aggregate {SUM, MIN, MAX}
@@ -2760,30 +2251,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public MultiBulkReply zrange(byte[] key0, byte[] start1, byte[] stop2, byte[] withscores3) throws RedisException {
-    if (key0 == null || start1 == null || stop2 == null) {
-      throw new RedisException("invalid number of argumenst for 'zrange' command");
-    }
-    boolean withscores = _checkcommand(withscores3, "withscores", true);
-    ZSet zset = _getzset(key0, false);
-    int size = zset.size();
-    int start = _torange(start1, size);
-    int end = _torange(stop2, size);
-    Iterator<ZSetEntry> iterator = zset.iterator();
-    List<Reply<ByteBuf>> list = new ArrayList<Reply<ByteBuf>>();
-    for (int i = 0; i < size; i++) {
-      if (iterator.hasNext()) {
-        ZSetEntry next = iterator.next();
-        if (i >= start && i <= end) {
-          list.add(new BulkReply(next.getKey().getBytes()));
-          if (withscores) {
-            list.add(new BulkReply(_tobytes(next.getScore())));
-          }
-        } else if (i > end) {
-          break;
-        }
-      }
-    }
-    return new MultiBulkReply(list.toArray(new Reply[list.size()]));
+    throw notImplemented();
   }
 
   private boolean _checkcommand(byte[] check, String command, boolean syntax) throws RedisException {
@@ -2816,67 +2284,13 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public MultiBulkReply zrangebyscore(byte[] key0, byte[] min1, byte[] max2, byte[][] withscores_offset_or_count4) throws RedisException {
-    ZSet zset = _getzset(key0, false);
-    if (zset.isEmpty()) return MultiBulkReply.EMPTY;
-    List<Reply<ByteBuf>> list = _zrangebyscore(min1, max2, withscores_offset_or_count4, zset, false);
-    return new MultiBulkReply(list.toArray(new Reply[list.size()]));
+    throw notImplemented();
   }
 
   private List<Reply<ByteBuf>> _zrangebyscore(byte[] min1, byte[] max2, byte[][] withscores_offset_or_count4, ZSet zset, boolean reverse) throws RedisException {
-    int position = 0;
-    boolean withscores = false;
-    if (withscores_offset_or_count4.length > 0) {
-      withscores = _checkcommand(withscores_offset_or_count4[0], "withscores", false);
-    }
-    if (withscores) position++;
-    boolean limit = false;
-    if (withscores_offset_or_count4.length > position) {
-      limit = _checkcommand(withscores_offset_or_count4[position++], "limit", true);
-    }
-    if (withscores_offset_or_count4.length != position + (limit ? 2 : 0)) {
-      throw new RedisException("syntax error");
-    }
-    int offset = 0;
-    int number = Integer.MAX_VALUE;
-    if (limit) {
-      offset = _toint(withscores_offset_or_count4[position++]);
-      number = _toint(withscores_offset_or_count4[position]);
-      if (offset < 0 || number < 1) {
-        throw notInteger();
-      }
-    }
-    Score min = _toscorerange(min1);
-    Score max = _toscorerange(max2);
-    List<ZSetEntry> entries = zset.subSet(min.value, max.value);
-    if (reverse) Collections.reverse(entries);
-    int current = 0;
-    List<Reply<ByteBuf>> list = new ArrayList<Reply<ByteBuf>>();
-    for (ZSetEntry entry : entries) {
-      if (current >= offset && current < offset + number) {
-        list.add(new BulkReply(entry.getKey().getBytes()));
-        if (withscores) list.add(new BulkReply(_tobytes(entry.getScore())));
-      }
-      current++;
-    }
-    return list;
+    throw notImplemented();
   }
 
-  private Score _toscorerange(byte[] specifier) {
-    Score score = new Score();
-    String s = new String(specifier).toLowerCase();
-    if (s.startsWith("(")) {
-      score.inclusive = false;
-      s = s.substring(1);
-    }
-    if (s.equals("-inf")) {
-      score.value = Double.NEGATIVE_INFINITY;
-    } else if (s.equals("inf") || s.equals("+inf")) {
-      score.value = Double.POSITIVE_INFINITY;
-    } else {
-      score.value = Double.parseDouble(s);
-    }
-    return score;
-  }
 
   static class Score {
     boolean inclusive = true;
@@ -2893,8 +2307,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public Reply zrank(byte[] key0, byte[] member1) throws RedisException {
-    List<ZSetEntry> zset = _getzset(key0, false).list();
-    return _zrank(member1, zset);
+    throw notImplemented();
   }
 
   /**
@@ -2907,15 +2320,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply zrem(byte[] key0, byte[][] member1) throws RedisException {
-    ZSet zset = _getzset(key0, false);
-    if (zset.isEmpty()) return integer(0);
-    int total = 0;
-    for (byte[] member : member1) {
-      if (zset.remove(member)) {
-        total++;
-      }
-    }
-    return integer(total);
+    throw notImplemented();
   }
 
   /**
@@ -2964,20 +2369,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply zremrangebyscore(byte[] key0, byte[] min1, byte[] max2) throws RedisException {
-    ZSet zset = _getzset(key0, false);
-    if (zset.isEmpty()) return integer(0);
-    Score min = _toscorerange(min1);
-    Score max = _toscorerange(max2);
-    List<ZSetEntry> entries = zset.subSet(min.value, max.value);
-    int total = 0;
-    for (ZSetEntry entry : new ArrayList<ZSetEntry>(entries)) {
-      if (!min.inclusive && entry.getScore() == min.value) continue;
-      if (!max.inclusive && entry.getScore() == max.value) continue;
-      if (zset.remove(entry.getKey())) {
-        total++;
-      }
-    }
-    return integer(total);
+    throw notImplemented();
   }
 
   /**
@@ -2992,30 +2384,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public MultiBulkReply zrevrange(byte[] key0, byte[] start1, byte[] stop2, byte[] withscores3) throws RedisException {
-    if (key0 == null || start1 == null || stop2 == null) {
-      throw new RedisException("invalid number of argumenst for 'zrevrange' command");
-    }
-    boolean withscores = _checkcommand(withscores3, "withscores", true);
-    ZSet zset = _getzset(key0, false);
-    int size = zset.size();
-    int end = size - _torange(start1, size) - 1;
-    int start = size - _torange(stop2, size) - 1;
-    Iterator<ZSetEntry> iterator = zset.iterator();
-    List<Reply<ByteBuf>> list = new ArrayList<Reply<ByteBuf>>();
-    for (int i = 0; i < size; i++) {
-      if (iterator.hasNext()) {
-        ZSetEntry next = iterator.next();
-        if (i >= start && i <= end) {
-          list.add(0, new BulkReply(next.getKey().getBytes()));
-          if (withscores) {
-            list.add(1, new BulkReply(_tobytes(next.getScore())));
-          }
-        } else if (i > end) {
-          break;
-        }
-      }
-    }
-    return new MultiBulkReply(list.toArray(new Reply[list.size()]));
+    throw notImplemented();
   }
 
   /**
@@ -3030,10 +2399,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public MultiBulkReply zrevrangebyscore(byte[] key0, byte[] max1, byte[] min2, byte[][] withscores_offset_or_count4) throws RedisException {
-    ZSet zset = _getzset(key0, false);
-    if (zset.isEmpty()) return MultiBulkReply.EMPTY;
-    List<Reply<ByteBuf>> list = _zrangebyscore(min2, max1, withscores_offset_or_count4, zset, true);
-    return new MultiBulkReply(list.toArray(new Reply[list.size()]));
+    throw notImplemented();
   }
 
   /**
@@ -3046,22 +2412,9 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public Reply zrevrank(byte[] key0, byte[] member1) throws RedisException {
-    List<ZSetEntry> zset = _getzset(key0, false).list();
-    Collections.reverse(zset);
-    return _zrank(member1, zset);
+    throw notImplemented();
   }
 
-  private Reply _zrank(byte[] member1, List<ZSetEntry> zset) {
-    BytesKey member = new BytesKey(member1);
-    int position = 0;
-    for (ZSetEntry entry : zset) {
-      if (entry.getKey().equals(member)) {
-        return integer(position);
-      }
-      position++;
-    }
-    return NIL_REPLY;
-  }
 
   /**
    * Get the score associated with the given member in a sorted set
@@ -3073,10 +2426,7 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public BulkReply zscore(byte[] key0, byte[] member1) throws RedisException {
-    ZSet zset = _getzset(key0, false);
-    ZSetEntry entry = zset.get(member1);
-    double score = entry.getScore();
-    return new BulkReply(_tobytes(score));
+    throw notImplemented();
   }
 
   private byte[] _tobytes(double score) {
@@ -3094,6 +2444,11 @@ public class SimpleRedisServer implements RedisServer {
    */
   @Override
   public IntegerReply zunionstore(byte[] destination0, byte[] numkeys1, byte[][] key2) throws RedisException {
-    return _zstore(destination0, numkeys1, key2, "zunionstore", true);
+    throw notImplemented();
   }
+    public Reply srandmember(byte[] key0, byte[] count1) throws RedisException
+    {
+        throw new RedisException("Unimplemented");
+    }
+
 }

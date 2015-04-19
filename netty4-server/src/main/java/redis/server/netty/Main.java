@@ -2,6 +2,7 @@ package redis.server.netty;
 
 import com.sampullara.cli.Args;
 import com.sampullara.cli.Argument;
+import edu.stanford.ramcloud.RAMCloud;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelInitializer;
@@ -12,13 +13,17 @@ import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.util.concurrent.DefaultEventExecutorGroup;
 
+import java.util.Properties;
+
 /**
  * Redis server
  */
 public class Main {
   @Argument(alias = "p")
-  private static Integer port = 6380;
+  private static Integer port = 6379;
 
+  @Argument(alias = "C")
+  private static String locator;
   public static void main(String[] args) throws InterruptedException {
     try {
       Args.parse(Main.class, args);
@@ -27,8 +32,7 @@ public class Main {
       System.exit(1);
     }
 
-    // Only execute the command handler in a single thread
-    final RedisCommandHandler commandHandler = new RedisCommandHandler(new SimpleRedisServer());
+    final RAMCloud ramCloud = new RAMCloud(locator);
 
     // Configure the server.
     ServerBootstrap b = new ServerBootstrap();
@@ -46,6 +50,7 @@ public class Main {
 //             p.addLast(new ByteLoggingHandler(LogLevel.INFO));
              p.addLast(new RedisCommandDecoder());
              p.addLast(new RedisReplyEncoder());
+             final RedisCommandHandler commandHandler = new RedisCommandHandler(new SimpleRedisServer(ramCloud));
              p.addLast(group, commandHandler);
            }
          });
